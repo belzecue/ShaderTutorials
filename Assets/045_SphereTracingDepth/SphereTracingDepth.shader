@@ -1,21 +1,19 @@
-﻿Shader "Tutorial/044_SphereTracingShading"{
-    //show values to edit in inspector
+﻿Shader "Tutorial/045_SphereTracingDepth"{
+//show values to edit in inspector
     Properties{
         _Color ("Color", Color) = (0, 0, 0, 1)
     }
 
     SubShader{
-        //the material is completely non-transparent and is rendered at the same time as transparent geometry
-        Tags{ "RenderType"="Opaque" "Queue"="Transparent" "DisableBatching"="True"}
+        //the material is completely non-transparent and is rendered just after opaque geometry
+        Tags{ "RenderType"="Opaque" "Queue"="Geometry+1" "DisableBatching"="True" "IgnoreProjector"="True"}
 
         Pass{
-            ZWrite Off
+            ZWrite On
 
             CGPROGRAM
             #include "UnityCG.cginc"
             #include "Lighting.cginc"
-
-            
 
             #pragma vertex vert
             #pragma fragment frag
@@ -24,9 +22,9 @@
             fixed4 _Color;
 
             //maximum amount of steps
-            #define MAX_STEPS 10
+            #define MAX_STEPS 32
             //furthest distance that's accepted as inside surface
-            #define THICKNESS 0.01
+            #define THICKNESS 0.001
             //distance from rendered point to sample SDF for normal calculation
             #define NORMAL_EPSILON 0.01
 
@@ -82,7 +80,7 @@
                 return lightAngle * _LightColor0;
             }
 
-            float4 material(float3 position){
+            float4 renderSurface(float3 position){
                 //get light color
                 float4 light = lightColor(position);
 
@@ -91,29 +89,37 @@
 
                 return color;
             }
-
-            fixed4 frag(v2f i) : SV_TARGET{
+            
+            void frag(v2f i, out fixed4 color : SV_TARGET, out float depth : SV_Depth){
                 //ray information
                 float3 pos = i.localPosition;
                 float3 dir = normalize(i.viewDirection.xyz);
                 float progress = 0;
+                float3 samplePoint = 0;
                 
+                bool hitsurface = false;
                 //tracing loop
                 for (uint iter = 0; iter < MAX_STEPS; iter++) {
                     //get current location on ray
-                    float3 samplePoint = pos + dir * progress;
+                    samplePoint = pos + dir * progress;
                     //get distance to closest shape
                     float distance = scene(samplePoint);
                     //return color if inside shape
                     if(distance < THICKNESS){
-                        return material(samplePoint);
+                        hitsurface = true;
+                        break;
                     }
                     //go forwards
                     progress = progress + distance;
                 }
                 //discard pixel if no shape was hit
-                clip(-1);
-                return 0;
+                clip(hitsurface ? 1 : -1);
+                
+                //calculate surface color
+                color = renderSurface(samplePoint);
+                //calculate surface depth
+                float4 tracedClipPos = UnityObjectToClipPos(float4(samplePoint, 1.0));
+                depth = tracedClipPos.z / tracedClipPos.w;
             }
 
             ENDCG
